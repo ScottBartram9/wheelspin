@@ -29,11 +29,24 @@ export default function Home() {
   ];
 
   const addItem = () => {
+    if (items.length >= 12) {
+      alert('Maximum of 12 items allowed!');
+      return;
+    }
     if (inputValue.trim()) {
+      // Get the color of the last item to avoid duplicates
+      const lastColor = items.length > 0 ? items[items.length - 1].color : null;
+      let newColor = colors[items.length % colors.length];
+      
+      // If the new color matches the last color, use the next one
+      if (newColor === lastColor && colors.length > 1) {
+        newColor = colors[(items.length + 1) % colors.length];
+      }
+      
       const newItem: WheelItem = {
         id: Date.now().toString(),
         value: inputValue.trim(),
-        color: colors[items.length % colors.length]
+        color: newColor
       };
       setItems([...items, newItem]);
       setInputValue('');
@@ -61,8 +74,11 @@ export default function Home() {
     setTimeout(() => {
       const normalizedRotation = finalRotation % 360;
       const segmentAngle = 360 / items.length;
-      const adjustedRotation = (360 - normalizedRotation + segmentAngle / 2) % 360;
-      const selectedIndex = Math.floor(adjustedRotation / segmentAngle);
+      // Pointer is at top (270 degrees in our coordinate system where 0 is right)
+      // Find which segment is under the pointer
+      const pointerPosition = 270; // Top of wheel
+      const totalRotation = (pointerPosition - normalizedRotation + 360) % 360;
+      const selectedIndex = Math.floor(totalRotation / segmentAngle) % items.length;
       const selected = items[selectedIndex];
       
       setSelectedItem(selected.value);
@@ -71,32 +87,88 @@ export default function Home() {
   };
 
   const createWheelSegments = () => {
+    const segmentAngle = 360 / items.length;
+    
     return items.map((item, index) => {
-      const angle = (360 / items.length);
-      const rotation = angle * index;
-      const skewAngle = 90 - angle;
+      // Start at 0 degrees (right side) and go clockwise
+      const startAngle = (index * segmentAngle) * (Math.PI / 180);
+      const endAngle = ((index + 1) * segmentAngle) * (Math.PI / 180);
+      const midAngle = (startAngle + endAngle) / 2;
+      
+      // Create SVG path for perfect pie slice
+      const radius = 160; // Half of wheel size (320px / 2)
+      const centerX = 160;
+      const centerY = 160;
+      
+      const x1 = centerX + radius * Math.cos(startAngle);
+      const y1 = centerY + radius * Math.sin(startAngle);
+      const x2 = centerX + radius * Math.cos(endAngle);
+      const y2 = centerY + radius * Math.sin(endAngle);
+      
+      const largeArcFlag = segmentAngle > 180 ? 1 : 0;
+      
+      const pathData = `M ${centerX} ${centerY} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2} Z`;
+      
+      // Text positioning along the radius
+      const textRadius = radius * 0.65;
+      const textX = centerX + textRadius * Math.cos(midAngle);
+      const textY = centerY + textRadius * Math.sin(midAngle);
+      const textRotation = (midAngle * 180 / Math.PI) + 90;
+      
+      // Split text into multiple lines if too long
+      const maxCharsPerLine = 12;
+      const words = item.value.split(' ');
+      const lines: string[] = [];
+      let currentLine = '';
+      
+      words.forEach(word => {
+        if ((currentLine + word).length <= maxCharsPerLine) {
+          currentLine += (currentLine ? ' ' : '') + word;
+        } else {
+          if (currentLine) lines.push(currentLine);
+          currentLine = word;
+        }
+      });
+      if (currentLine) lines.push(currentLine);
+      
+      // Limit to 2 lines
+      if (lines.length > 2) {
+        lines[1] = lines[1].substring(0, maxCharsPerLine - 3) + '...';
+        lines.splice(2);
+      }
       
       return (
-        <div
-          key={item.id}
-          className="absolute w-1/2 h-1/2 origin-bottom-right"
-          style={{
-            transform: `rotate(${rotation}deg) skewY(${skewAngle}deg)`,
-            backgroundColor: item.color,
-          }}
-        >
-          <div 
-            className="absolute inset-0 flex items-center justify-center text-white font-bold text-sm"
+        <g key={item.id}>
+          <path
+            d={pathData}
+            fill={item.color}
+            stroke="none"
+          />
+          <text
+            x={textX}
+            y={textY}
+            fill="white"
+            fontSize="12"
+            fontWeight="bold"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            transform={`rotate(${textRotation}, ${textX}, ${textY})`}
             style={{
-              transform: `skewY(-${skewAngle}deg) rotate(${angle / 2}deg)`,
-              paddingLeft: '20%',
+              pointerEvents: 'none',
+              textShadow: '1px 1px 2px rgba(0,0,0,0.3)'
             }}
           >
-            <span className="transform rotate-90 origin-center">
-              {item.value.length > 15 ? item.value.substring(0, 15) + '...' : item.value}
-            </span>
-          </div>
-        </div>
+            {lines.map((line, i) => (
+              <tspan
+                key={i}
+                x={textX}
+                dy={i === 0 ? `-${(lines.length - 1) * 0.5}em` : '1em'}
+              >
+                {line}
+              </tspan>
+            ))}
+          </text>
+        </g>
       );
     });
   };
@@ -113,22 +185,27 @@ export default function Home() {
           <div className="flex flex-col items-center">
             <div className="relative w-80 h-80 mb-8">
               {/* Pointer */}
-              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-2 z-20">
-                <div className="w-0 h-0 border-l-[20px] border-l-transparent border-r-[20px] border-r-transparent border-b-[40px] border-b-red-600"></div>
+              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1 z-20">
+                <div className="w-0 h-0 border-l-[15px] border-l-transparent border-r-[15px] border-r-transparent border-t-[30px] border-t-red-600"></div>
               </div>
               
               {/* Wheel */}
               <div 
                 ref={wheelRef}
-                className="relative w-full h-full rounded-full overflow-hidden shadow-2xl border-8 border-gray-800 transition-transform duration-3000 ease-out"
+                className="relative w-full h-full rounded-full shadow-2xl border-8 border-gray-800 transition-transform duration-3000 ease-out overflow-hidden"
                 style={{
                   transform: `rotate(${rotation}deg)`,
                   transitionDuration: isSpinning ? '3000ms' : '0ms',
+                  backgroundColor: items.length === 0 ? '#e5e7eb' : 'transparent'
                 }}
               >
-                {items.length > 0 ? createWheelSegments() : (
-                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                    <p className="text-gray-500 text-center px-8">
+                {items.length > 0 ? (
+                  <svg width="100%" height="100%" viewBox="0 0 320 320" className="absolute inset-0" style={{ backgroundColor: items.length === 1 ? items[0].color : 'transparent' }}>
+                    {createWheelSegments()}
+                  </svg>
+                ) : (
+                  <div className="w-full h-full bg-gray-200 flex items-center justify-center absolute inset-0 rounded-full">
+                    <p className="text-gray-500 text-center px-8 -mt-35">
                       Add items to the wheel to get started!
                     </p>
                   </div>
@@ -167,12 +244,13 @@ export default function Home() {
                   value={inputValue}
                   onChange={(e) => setInputValue(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && addItem()}
-                  placeholder="Enter an item (e.g., Movie: Avatar)"
+                  placeholder={`Enter an item (${items.length}/12)`}
                   className="flex-1 px-4 py-2 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
                 />
                 <button
                   onClick={addItem}
-                  className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors"
+                  disabled={items.length >= 12}
+                  className="px-6 py-2 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   Add
                 </button>
@@ -230,11 +308,18 @@ export default function Home() {
                       'Movie: The Avengers',
                       'Movie: Frozen'
                     ];
-                    const newItems = movieItems.map((movie, index) => ({
-                      id: Date.now().toString() + index,
-                      value: movie,
-                      color: colors[index % colors.length]
-                    }));
+                    const newItems = movieItems.map((movie, index) => {
+                      // Ensure no adjacent colors are the same
+                      let colorIndex = index % colors.length;
+                      if (index > 0 && colors[colorIndex] === colors[(index - 1) % colors.length]) {
+                        colorIndex = (colorIndex + 1) % colors.length;
+                      }
+                      return {
+                        id: Date.now().toString() + index,
+                        value: movie,
+                        color: colors[colorIndex]
+                      };
+                    });
                     setItems(newItems);
                     setSelectedItem(null);
                   }}
